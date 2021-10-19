@@ -74,4 +74,4 @@ add_subdirectory(src/samples/shadowmap)
 add_subdirectory(src/samples/simpleforward)
 add_subdirectory(src/samples/simple_compute)
 
-
+add_compile_definitions(USE_VOLK)
