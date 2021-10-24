@@ -1,0 +1,29 @@
+#version 430
+#define BLOCK_SIZE 256
+
+layout( local_size_x = 256 ) in;
+
+layout( push_constant ) uniform params {
+    uint len;
+} PushConstant;
+
+layout(std430, binding = 0) buffer a
+{
+    float A[];
+};
+
+layout(std430, binding = 1) buffer Sum
+{
+    float sum[];
+};
+
+shared float cache[BLOCK_SIZE];
+
+void main() {
+    uint lidx = gl_LocalInvocationID.x;
+    uint gidx = gl_WorkGroupID.x;
+
+    if (lidx < PushConstant.len) {
+        sum[lidx + gidx * BLOCK_SIZE] += A[gidx];
+    }
+}

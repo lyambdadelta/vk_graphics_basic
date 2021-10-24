@@ -67,11 +67,11 @@ private:
   std::vector<const char*> m_validationLayers;
   std::shared_ptr<vk_utils::ICopyEngine> m_pCopyHelper;
 
-  VkDescriptorSet       m_sumDS; 
-  VkDescriptorSetLayout m_sumDSLayout = nullptr;
+  VkDescriptorSet       m_sumDS, m_sum2DS, m_sum3DS; 
+  VkDescriptorSetLayout m_sumDSLayout = nullptr, m_sum2DSLayout = nullptr, m_sum3DSLayout = nullptr;
   
-  VkPipeline m_pipeline;
-  VkPipelineLayout m_layout;
+  VkPipeline m_pipeline, m_pipeline2, m_pipeline3;
+  VkPipelineLayout m_layout, m_layout2, m_layout3;
 
   VkBuffer m_A, m_B, m_sum;
  
