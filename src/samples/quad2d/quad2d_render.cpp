@@ -233,7 +233,7 @@ void Quad2D_Render::RecreateSwapChain()
   }
 
   m_cmdBuffersDrawMain = vk_utils::createCommandBuffers(m_device, m_commandPool, m_framesInFlight);
-  for (size_t i = 0; i < m_swapchain.GetImageCount(); ++i)
+  for (uint32_t i = 0; i < m_swapchain.GetImageCount(); ++i)
   {
     BuildCommandBufferSimple(m_cmdBuffersDrawMain[i], m_frameBuffers[i], m_swapchain.GetAttachment(i).view);
   }
@@ -274,7 +274,7 @@ void Quad2D_Render::ProcessInput(const AppInput &input)
     SetupQuadRenderer();
     SetupSimplePipeline();
 
-    for (size_t i = 0; i < m_framesInFlight; ++i)
+    for (uint32_t i = 0; i < m_framesInFlight; ++i)
     {
       BuildCommandBufferSimple(m_cmdBuffersDrawMain[i], m_frameBuffers[i], m_swapchain.GetAttachment(i).view);
     }
@@ -282,7 +282,7 @@ void Quad2D_Render::ProcessInput(const AppInput &input)
 
 }
 
-void Quad2D_Render::UpdateCamera(const Camera* cams, uint32_t a_camsNumber)
+void Quad2D_Render::UpdateCamera(const Camera*, uint32_t)
 {
 
 }
@@ -292,7 +292,7 @@ static std::vector<unsigned> LoadBMP(const char* filename, unsigned* pW, unsigne
 {
   FILE* f = fopen(filename, "rb");
 
-  if(f == NULL)
+  if(f == nullptr)
   {
     (*pW) = 0;
     (*pH) = 0;
@@ -331,7 +331,7 @@ static std::vector<unsigned> LoadBMP(const char* filename, unsigned* pW, unsigne
   return res;
 }
 
-void Quad2D_Render::LoadScene(const char* path, bool transpose_inst_matrices)
+void Quad2D_Render::LoadScene(const char*, bool)
 {
   uint32_t texW, texH;
   auto texData = LoadBMP("../resources/textures/texture1.bmp", &texW, &texH);
@@ -340,51 +340,10 @@ void Quad2D_Render::LoadScene(const char* path, bool transpose_inst_matrices)
                                                              m_pCopyHelper, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
 
   m_imageSampler = vk_utils::createSampler(m_device, VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT);
-  
-  // transfer our texture layout from VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL 
-  //
-  VkCommandBuffer commandBuffer = vk_utils::createCommandBuffer(m_device, m_commandPool);
-    
-  VkCommandBufferBeginInfo beginCommandBufferInfo = {};
-  beginCommandBufferInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-  beginCommandBufferInfo.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
-  vkBeginCommandBuffer(commandBuffer, &beginCommandBufferInfo);
-  {
-    VkImageMemoryBarrier imgBar = {};
-    {
-      imgBar.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-      imgBar.pNext = nullptr;
-      imgBar.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      imgBar.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-  
-      imgBar.srcAccessMask = 0;
-      imgBar.dstAccessMask = 0;
-      imgBar.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-      imgBar.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      imgBar.image         = m_imageData.image;
-  
-      imgBar.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
-      imgBar.subresourceRange.baseMipLevel   = 0;
-      imgBar.subresourceRange.levelCount     = 1;
-      imgBar.subresourceRange.baseArrayLayer = 0;
-      imgBar.subresourceRange.layerCount     = 1;
-    };
-  
-    vkCmdPipelineBarrier(commandBuffer,
-                         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         0,
-                         0, nullptr,
-                         0, nullptr,
-                         1, &imgBar);
-  }
-
-  vkEndCommandBuffer(commandBuffer);  
-  vk_utils::executeCommandBufferNow(commandBuffer, m_transferQueue, m_device);
 
   SetupSimplePipeline();
 
-  for (size_t i = 0; i < m_framesInFlight; ++i)
+  for (uint32_t i = 0; i < m_framesInFlight; ++i)
     BuildCommandBufferSimple(m_cmdBuffersDrawMain[i], m_frameBuffers[i], m_swapchain.GetAttachment(i).view);
 }
 
@@ -434,7 +393,7 @@ void Quad2D_Render::DrawFrameSimple()
   vkQueueWaitIdle(m_presentationResources.queue);
 }
 
-void Quad2D_Render::DrawFrame(float a_time, DrawMode a_mode)
+void Quad2D_Render::DrawFrame(float, DrawMode)
 {
   DrawFrameSimple();
 }
