@@ -63,7 +63,7 @@ public:
     return VK_FALSE;
   }
 
-  VkDebugReportCallbackEXT m_debugReportCallback = nullptr;
+  VkDebugReportCallbackEXT m_debugReportCallback = VK_NULL_HANDLE;
 protected:
 
   VkInstance       m_instance       = VK_NULL_HANDLE;
@@ -89,7 +89,6 @@ protected:
   struct
   {
     LiteMath::float4x4 projView;
-    LiteMath::float4x4 model;
   } pushConst2M;
 
   UniformParams m_uniforms {};
@@ -123,6 +122,25 @@ protected:
   uint32_t m_height = 1024u;
   uint32_t m_framesInFlight  = 2u;
   bool m_vsync = false;
+  uint m_length = 68u;
+  uint m_numInstLine = 16u;
+
+  struct ComputePushConst {
+    LiteMath::float4x4 arr;
+    uint num;
+  } computePushConst;
+
+  struct ShaderMeshInfo {
+    uint m_indNum;
+    uint m_vertexOffset;
+    uint m_indexOffset;
+  };
+
+  VkBuffer inputMesh, inputInstance, bb, vkDrawBuff, outputInstance;
+  VkDescriptorSet       m_computeDS; 
+  VkDescriptorSetLayout m_computeDSLayout = VK_NULL_HANDLE;
+  VkPipeline            m_computePipeline;
+  VkPipelineLayout      m_computePipelineLayout;
 
   VkPhysicalDeviceFeatures m_enabledDeviceFeatures = {};
   std::vector<const char*> m_deviceExtensions      = {};
@@ -130,6 +148,7 @@ protected:
 
   bool m_enableValidation;
   std::vector<const char*> m_validationLayers;
+  std::shared_ptr<vk_utils::ICopyEngine> m_pCopyHelper;
 
   std::shared_ptr<SceneManager> m_pScnMgr;
 
@@ -141,7 +160,10 @@ protected:
   void BuildCommandBufferSimple(VkCommandBuffer cmdBuff, VkFramebuffer frameBuff,
                                 VkImageView a_targetImageView, VkPipeline a_pipeline);
 
+  void FillComputeBuffers();
   virtual void SetupSimplePipeline();
+  void AllocateComputeBuffers();
+  void CreateComputePipeline();
   void CleanupPipelineAndSwapchain();
   void RecreateSwapChain();
 

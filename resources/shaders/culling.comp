@@ -1,0 +1,100 @@
+#version 430
+#define BLOCK_SIZE 256
+
+layout( local_size_x = 256 ) in;
+
+struct VkDrawIndexedIndirectCommand {
+    uint    indexCount;
+    uint    instanceCount;
+    uint    firstIndex;
+    uint    vertexOffset;
+    uint    firstInstance;
+};
+
+struct MeshInfo {
+  uint m_indNum;
+  uint m_vertexOffset;
+  uint m_indexOffset;
+};
+
+struct Instance {
+    mat4 posMatrix;
+};
+
+struct BBox {
+    vec4 firstPoint; 
+    vec4 secondPoint;
+};
+
+layout(push_constant) uniform params_t {
+    mat4 mProjView;
+    uint instance_count;
+} params;
+
+// Mesh info - offsets
+layout(std430, binding = 0) buffer meshInfo {
+    MeshInfo inputMesh;
+};
+
+// Instance info 
+layout(std430, binding = 1) buffer InstanceInfo {
+    Instance inputInstance[];
+};
+
+// Bounding box - 2 diametral points for box, others are parallel
+layout(std430, binding = 2) buffer BoxBounds {
+    BBox bb;
+};
+
+// Command to VkDrawIndexedIndirect
+layout(std430, binding = 3) buffer Out
+{
+    VkDrawIndexedIndirectCommand buff;
+};
+
+// Return Instances to Draw
+layout(std430, binding = 4) buffer OutInstance
+{
+    Instance outputInstance[];
+};
+
+shared int number;
+
+void main() {
+    uint instance_idx = gl_LocalInvocationID.x;
+    if (instance_idx == 0) {
+        number = 0;
+    }
+    for (int i = 0; i <= params.instance_count / BLOCK_SIZE; i++) {
+        if (instance_idx + i * BLOCK_SIZE < params.instance_count) {
+            vec4 obb_points[8] = {     
+                                bb.firstPoint,
+                            vec4(bb.firstPoint[0], bb.firstPoint[1], bb.secondPoint[2], 1.0f),
+                            vec4(bb.firstPoint[0], bb.secondPoint[1], bb.firstPoint[2], 1.0f),
+                            vec4(bb.firstPoint[0], bb.secondPoint[1], bb.secondPoint[2], 1.0f),
+                            vec4(bb.secondPoint[0], bb.firstPoint[1], bb.firstPoint[2], 1.0f),
+                            vec4(bb.secondPoint[0], bb.firstPoint[1], bb.secondPoint[2], 1.0f),
+                            vec4(bb.secondPoint[0], bb.secondPoint[1], bb.firstPoint[2], 1.0f),
+                                bb.secondPoint};
+            bool flag = false;
+            for (int j = 0; j < 8; j++) {
+                vec4 res_bound = params.mProjView * inputInstance[instance_idx].posMatrix * obb_points[j];
+                res_bound = res_bound / res_bound.w;
+                flag = flag || (abs(res_bound[0]) <= 1.0 && abs(res_bound[1]) <= 1.0 && res_bound[2] >= 0 && res_bound[2] <= 1.0);
+            }
+            int num = 0;
+            if (flag) {
+                num = atomicAdd(number, 1);
+                outputInstance[num] = inputInstance[instance_idx];
+            }
+        }
+    }
+    barrier();
+    if (instance_idx == 0) {
+        buff.indexCount = inputMesh.m_indNum;
+        buff.instanceCount = number;
+        buff.firstIndex = inputMesh.m_indexOffset;
+        buff.vertexOffset = inputMesh.m_vertexOffset;
+        buff.firstInstance = 0;
+    }
+}

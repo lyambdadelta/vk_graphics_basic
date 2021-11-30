@@ -62,6 +62,8 @@ void SimpleRender::InitVulkan(const char** a_instanceExtensions, uint32_t a_inst
 
   m_pScnMgr = std::make_shared<SceneManager>(m_device, m_physicalDevice, m_queueFamilyIDXs.transfer,
                                              m_queueFamilyIDXs.graphics, false);
+  
+  m_pCopyHelper = std::make_shared<vk_utils::SimpleCopyHelper>(m_physicalDevice, m_device, m_transferQueue, m_queueFamilyIDXs.compute, 8*1024*1024);
 }
 
 void SimpleRender::InitPresentation(VkSurfaceKHR &a_surface)
@@ -123,18 +125,91 @@ void SimpleRender::CreateDevice(uint32_t a_deviceId)
   vkGetDeviceQueue(m_device, m_queueFamilyIDXs.transfer, 0, &m_transferQueue);
 }
 
+void SimpleRender::CreateComputePipeline()
+{
+  auto createShader = [&] (VkDescriptorSetLayout& DSLayout, VkPipelineLayout& layout, VkPipeline& pipeline, size_t pushConstSize, std::string path) {
+    // Загружаем шейдер
+    std::vector<uint32_t> code = vk_utils::readSPVFile(path.c_str());
+    VkShaderModuleCreateInfo createInfo = {};
+    createInfo.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    createInfo.pCode    = code.data();
+    createInfo.codeSize = code.size()*sizeof(uint32_t);
+
+    VkShaderModule shaderModule;
+    // Создаём шейдер в вулкане
+    VK_CHECK_RESULT(vkCreateShaderModule(m_device, &createInfo, NULL, &shaderModule));
+
+    VkPipelineShaderStageCreateInfo shaderStageCreateInfo = {};
+    shaderStageCreateInfo.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    shaderStageCreateInfo.stage  = VK_SHADER_STAGE_COMPUTE_BIT;
+    shaderStageCreateInfo.module = shaderModule;
+    shaderStageCreateInfo.pName  = "main";
+
+    VkPushConstantRange pcRange = {};
+    pcRange.offset = 0;
+    pcRange.size = pushConstSize;
+    pcRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    // Создаём layout для pipeline
+    VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
+    pipelineLayoutCreateInfo.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutCreateInfo.setLayoutCount = 1;
+    pipelineLayoutCreateInfo.pSetLayouts    = &DSLayout;
+    pipelineLayoutCreateInfo.pushConstantRangeCount = 1;
+    pipelineLayoutCreateInfo.pPushConstantRanges = &pcRange;
+    VK_CHECK_RESULT(vkCreatePipelineLayout(m_device, &pipelineLayoutCreateInfo, NULL, &layout));
+
+    VkComputePipelineCreateInfo pipelineCreateInfo = {};
+    pipelineCreateInfo.sType  = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    pipelineCreateInfo.stage  = shaderStageCreateInfo;
+    pipelineCreateInfo.layout = layout;
+
+    // Создаём pipeline - объект, который выставляет шейдер и его параметры
+    VK_CHECK_RESULT(vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, NULL, &pipeline));
+
+    vkDestroyShaderModule(m_device, shaderModule, nullptr);
+  };
+  
+  createShader(m_computeDSLayout,  m_computePipelineLayout,  m_computePipeline, sizeof(ComputePushConst),  "../resources/shaders/culling.comp.spv");
+}
+
+void SimpleRender::AllocateComputeBuffers()
+{
+  // Создание и аллокация буферов
+  inputMesh = vk_utils::createBuffer(m_device, sizeof(ShaderMeshInfo), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                                                       VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+  inputInstance = vk_utils::createBuffer(m_device, sizeof(mat4) * m_numInstLine * m_numInstLine, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                                                       VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+  bb = vk_utils::createBuffer(m_device, sizeof(Box4f), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                                                       VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+  vkDrawBuff = vk_utils::createBuffer(m_device, sizeof(VkDrawIndexedIndirectCommand), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                                                       VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
+  outputInstance = vk_utils::createBuffer(m_device, sizeof(mat4) * m_numInstLine * m_numInstLine, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                                                       VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+  vk_utils::allocateAndBindWithPadding(m_device, m_physicalDevice, {inputMesh, inputInstance, bb, vkDrawBuff, outputInstance}, 0);
+}
 
 void SimpleRender::SetupSimplePipeline()
 {
   std::vector<std::pair<VkDescriptorType, uint32_t> > dtypes = {
+      {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,             5},
       {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,             1}
   };
 
   if(m_pBindings == nullptr)
-    m_pBindings = std::make_shared<vk_utils::DescriptorMaker>(m_device, dtypes, 1);
+    m_pBindings = std::make_shared<vk_utils::DescriptorMaker>(m_device, dtypes, 2);
 
-  m_pBindings->BindBegin(VK_SHADER_STAGE_FRAGMENT_BIT);
+  m_pBindings->BindBegin(VK_SHADER_STAGE_COMPUTE_BIT);
+  m_pBindings->BindBuffer(0, inputMesh);
+  m_pBindings->BindBuffer(1, inputInstance);
+  m_pBindings->BindBuffer(2, bb);
+  m_pBindings->BindBuffer(3, vkDrawBuff);
+  m_pBindings->BindBuffer(4, outputInstance);
+  m_pBindings->BindEnd(&m_computeDS, &m_computeDSLayout);
+
+  m_pBindings->BindBegin(VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT);
   m_pBindings->BindBuffer(0, m_ubo, VK_NULL_HANDLE, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+  m_pBindings->BindBuffer(1, outputInstance);
   m_pBindings->BindEnd(&m_dSet, &m_dSetLayout);
 
   // if we are recreating pipeline (for example, to reload shaders)
@@ -163,6 +238,27 @@ void SimpleRender::SetupSimplePipeline()
 
   m_basicForwardPipeline.pipeline = maker.MakePipeline(m_device, m_pScnMgr->GetPipelineVertexInputStateCreateInfo(),
                                                        m_screenRenderPass, {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR});
+}
+
+void SimpleRender::FillComputeBuffers() {
+
+  auto meshInfo = m_pScnMgr->GetMeshInfo(1);
+  ShaderMeshInfo info({meshInfo.m_indNum, meshInfo.m_vertexOffset, meshInfo.m_indexOffset});
+  m_pCopyHelper->UpdateBuffer(inputMesh, 0, std::vector<ShaderMeshInfo>({info}).data(), sizeof(ShaderMeshInfo));
+
+  uint scale = 1;
+  std::vector<mat4> instances;
+  for (int i = 1; i <= m_numInstLine; i++) {
+    for (int j = 1; j <= m_numInstLine; j++) {
+      LiteMath::float4x4 position = LiteMath::translate4x4({(float)i * scale, 0, (float)j * scale});
+      instances.push_back({position});
+    }
+  }
+  m_pCopyHelper->UpdateBuffer(inputInstance, 0, instances.data(), sizeof(mat4) * instances.size());
+  computePushConst.num = m_numInstLine * m_numInstLine;
+
+  auto bboxInfo = m_pScnMgr->GetInstanceBbox(1);
+  m_pCopyHelper->UpdateBuffer(bb, 0, std::vector<Box4f>({bboxInfo}).data(), sizeof(Box4f) * instances.size());
 }
 
 void SimpleRender::CreateUniformBuffer()
@@ -208,6 +304,31 @@ void SimpleRender::BuildCommandBufferSimple(VkCommandBuffer a_cmdBuff, VkFramebu
   beginInfo.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
 
   VK_CHECK_RESULT(vkBeginCommandBuffer(a_cmdBuff, &beginInfo));
+  vkCmdBindPipeline(a_cmdBuff, VK_PIPELINE_BIND_POINT_COMPUTE, m_computePipeline);
+  vkCmdBindDescriptorSets(a_cmdBuff, VK_PIPELINE_BIND_POINT_COMPUTE, m_computePipelineLayout, 0, 1, &m_computeDS, 0, NULL);
+  vkCmdPushConstants(a_cmdBuff, m_computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(computePushConst), &computePushConst);
+  vkCmdDispatch(a_cmdBuff, 1, 1, 1);
+
+  VkBufferMemoryBarrier barrier = {};
+  barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+  barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+  barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+  barrier.buffer = outputInstance;
+  barrier.offset = 0;
+  barrier.size = VK_WHOLE_SIZE;
+
+  VkBufferMemoryBarrier barrier2 = {};
+  barrier2.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+  barrier2.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+  barrier2.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+  barrier2.buffer = vkDrawBuff;
+  barrier2.offset = 0;
+  barrier2.size = sizeof(VkDrawIndirectCommand);
+
+  VkBufferMemoryBarrier barries[] = {barrier, barrier2};
+  vkCmdPipelineBarrier(a_cmdBuff, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | 
+                        VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, {}, 0, nullptr, 1, barries, 0, nullptr);
+
 
   vk_utils::setDefaultViewport(a_cmdBuff, static_cast<float>(m_width), static_cast<float>(m_height));
   vk_utils::setDefaultScissor(a_cmdBuff, m_width, m_height);
@@ -241,18 +362,9 @@ void SimpleRender::BuildCommandBufferSimple(VkCommandBuffer a_cmdBuff, VkFramebu
 
     vkCmdBindVertexBuffers(a_cmdBuff, 0, 1, &vertexBuf, &zero_offset);
     vkCmdBindIndexBuffer(a_cmdBuff, indexBuf, 0, VK_INDEX_TYPE_UINT32);
-
-    for (uint32_t i = 0; i < m_pScnMgr->InstancesNum(); ++i)
-    {
-      auto inst = m_pScnMgr->GetInstanceInfo(i);
-
-      pushConst2M.model = m_pScnMgr->GetInstanceMatrix(i);
-      vkCmdPushConstants(a_cmdBuff, m_basicForwardPipeline.layout, stageFlags, 0,
-                         sizeof(pushConst2M), &pushConst2M);
-
-      auto mesh_info = m_pScnMgr->GetMeshInfo(inst.mesh_id);
-      vkCmdDrawIndexed(a_cmdBuff, mesh_info.m_indNum, 1, mesh_info.m_indexOffset, mesh_info.m_vertexOffset, 0);
-    }
+    vkCmdPushConstants(a_cmdBuff, m_basicForwardPipeline.layout, stageFlags, 0,
+                    sizeof(pushConst2M), &pushConst2M);
+    vkCmdDrawIndexedIndirect(a_cmdBuff, vkDrawBuff, 0, 1, 0);
 
     vkCmdEndRenderPass(a_cmdBuff);
   }
@@ -427,7 +539,11 @@ void SimpleRender::ProcessInput(const AppInput &input)
     std::system("cd ../resources/shaders && python3 compile_simple_render_shaders.py");
 #endif
 
+    CreateUniformBuffer();
+    AllocateComputeBuffers();
     SetupSimplePipeline();
+    CreateComputePipeline();
+    FillComputeBuffers();
 
     for (uint32_t i = 0; i < m_framesInFlight; ++i)
     {
@@ -452,7 +568,7 @@ void SimpleRender::UpdateView()
   auto mProj           = projectionMatrix(m_cam.fov, aspect, 0.1f, 1000.0f);
   auto mLookAt         = LiteMath::lookAt(m_cam.pos, m_cam.lookAt, m_cam.up);
   auto mWorldViewProj  = mProjFix * mProj * mLookAt;
-  pushConst2M.projView = mWorldViewProj;
+  pushConst2M.projView = computePushConst.arr = mWorldViewProj;
 }
 
 void SimpleRender::LoadScene(const char* path, bool transpose_inst_matrices)
@@ -460,7 +576,10 @@ void SimpleRender::LoadScene(const char* path, bool transpose_inst_matrices)
   m_pScnMgr->LoadSceneXML(path, transpose_inst_matrices);
 
   CreateUniformBuffer();
+  AllocateComputeBuffers();
   SetupSimplePipeline();
+  CreateComputePipeline();
+  FillComputeBuffers();
 
   auto loadedCam = m_pScnMgr->GetCamera(0);
   m_cam.fov = loadedCam.fov;

@@ -43,9 +43,9 @@ int main()
 
   initVulkanGLFW(app, window, VULKAN_DEVICE_ID);
 
-  app->LoadScene("../resources/scenes/043_cornell_normals/statex_00001.xml", false);
+  app->LoadScene("../resources/scenes/funny_bunny/bunny_plane.xml", false);
 
-  bool showGUI = true;
+  bool showGUI = false;
   mainLoop(app, window, showGUI);
 
   return 0;
