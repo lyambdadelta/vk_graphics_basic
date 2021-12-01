@@ -20,6 +20,8 @@ class SimpleRender : public IRender
 public:
   const std::string VERTEX_SHADER_PATH = "../resources/shaders/simple.vert";
   const std::string FRAGMENT_SHADER_PATH = "../resources/shaders/simple.frag";
+  const std::string GEOMETRY_SHADER_PATH = "../resources/shaders/simple_geom.geom";
+  const std::string GEOMETRY_FRAG_SHADER_PATH = "../resources/shaders/simple_geom.frag";
 
   SimpleRender(uint32_t a_width, uint32_t a_height);
   ~SimpleRender()  { Cleanup(); };
@@ -96,7 +98,7 @@ protected:
   VkDeviceMemory m_uboAlloc = VK_NULL_HANDLE;
   void* m_uboMappedMem = nullptr;
 
-  pipeline_data_t m_basicForwardPipeline {};
+  pipeline_data_t m_basicForwardPipeline {}, m_geomPipeline {};
 
   VkDescriptorSet m_dSet = VK_NULL_HANDLE;
   VkDescriptorSetLayout m_dSetLayout = VK_NULL_HANDLE;
@@ -123,7 +125,7 @@ protected:
   uint32_t m_framesInFlight  = 2u;
   bool m_vsync = false;
   uint m_length = 68u;
-  uint m_numInstLine = 16u;
+  uint m_numInstLine = 1u;
 
   struct ComputePushConst {
     LiteMath::float4x4 arr;

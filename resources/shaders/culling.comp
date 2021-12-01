@@ -83,6 +83,7 @@ void main() {
                 flag = flag || (abs(res_bound[0]) <= 1.0 && abs(res_bound[1]) <= 1.0 && res_bound[2] >= 0 && res_bound[2] <= 1.0);
             }
             int num = 0;
+            flag = true;
             if (flag) {
                 num = atomicAdd(number, 1);
                 outputInstance[num] = inputInstance[instance_idx];

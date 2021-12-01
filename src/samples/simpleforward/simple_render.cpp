@@ -17,6 +17,7 @@ SimpleRender::SimpleRender(uint32_t a_width, uint32_t a_height) : m_width(a_widt
 void SimpleRender::SetupDeviceFeatures()
 {
   // m_enabledDeviceFeatures.fillModeNonSolid = VK_TRUE;
+  m_enabledDeviceFeatures.geometryShader = VK_TRUE;
 }
 
 void SimpleRender::SetupDeviceExtensions()
@@ -207,7 +208,7 @@ void SimpleRender::SetupSimplePipeline()
   m_pBindings->BindBuffer(4, outputInstance);
   m_pBindings->BindEnd(&m_computeDS, &m_computeDSLayout);
 
-  m_pBindings->BindBegin(VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT);
+  m_pBindings->BindBegin(VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT);
   m_pBindings->BindBuffer(0, m_ubo, VK_NULL_HANDLE, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
   m_pBindings->BindBuffer(1, outputInstance);
   m_pBindings->BindEnd(&m_dSet, &m_dSetLayout);
@@ -237,6 +238,18 @@ void SimpleRender::SetupSimplePipeline()
   maker.SetDefaultState(m_width, m_height);
 
   m_basicForwardPipeline.pipeline = maker.MakePipeline(m_device, m_pScnMgr->GetPipelineVertexInputStateCreateInfo(),
+                                                       m_screenRenderPass, {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR});
+
+  shader_paths[VK_SHADER_STAGE_FRAGMENT_BIT] = GEOMETRY_FRAG_SHADER_PATH + ".spv";
+  shader_paths[VK_SHADER_STAGE_VERTEX_BIT]   = VERTEX_SHADER_PATH + ".spv";
+  shader_paths[VK_SHADER_STAGE_GEOMETRY_BIT] = GEOMETRY_SHADER_PATH + ".spv";
+
+  maker.LoadShaders(m_device, shader_paths);
+
+  m_geomPipeline.layout = maker.MakeLayout(m_device, {m_dSetLayout}, sizeof(pushConst2M));
+  maker.SetDefaultState(m_width, m_height);
+
+  m_geomPipeline.pipeline = maker.MakePipeline(m_device, m_pScnMgr->GetPipelineVertexInputStateCreateInfo(),
                                                        m_screenRenderPass, {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR});
 }
 
@@ -366,6 +379,14 @@ void SimpleRender::BuildCommandBufferSimple(VkCommandBuffer a_cmdBuff, VkFramebu
                     sizeof(pushConst2M), &pushConst2M);
     vkCmdDrawIndexedIndirect(a_cmdBuff, vkDrawBuff, 0, 1, 0);
 
+    vkCmdBindPipeline(a_cmdBuff, VK_PIPELINE_BIND_POINT_GRAPHICS, m_geomPipeline.pipeline);
+    vkCmdBindDescriptorSets(a_cmdBuff, VK_PIPELINE_BIND_POINT_GRAPHICS, m_geomPipeline.layout, 0, 1,
+                            &m_dSet, 0, VK_NULL_HANDLE);
+
+    stageFlags = (VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_GEOMETRY_BIT);
+    vkCmdPushConstants(a_cmdBuff, m_geomPipeline.layout, stageFlags, 0,
+                        sizeof(pushConst2M), &pushConst2M);
+    vkCmdDrawIndexedIndirect(a_cmdBuff, vkDrawBuff, 0, 1, 0);
     vkCmdEndRenderPass(a_cmdBuff);
   }
 
